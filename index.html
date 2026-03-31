@@ -105,6 +105,28 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
 .tab-btn{padding:8px 12px;border-radius:var(--rs) var(--rs) 0 0;background:transparent;border:none;color:var(--text3);font-size:12px;cursor:pointer;font-family:var(--sans);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
 .tab-btn:hover{color:var(--text2);}
 .tab-btn.active{color:var(--accent2);border-bottom-color:var(--accent);}
+
+/* DATE SELECTOR */
+.date-nav{display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;}
+.date-nav-btn{background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);color:var(--text2);font-size:13px;padding:6px 10px;cursor:pointer;font-family:var(--sans);}
+.date-nav-btn:hover{background:var(--bg4);}
+.date-nav-btn.today-btn{background:rgba(124,106,247,.15);border-color:var(--accent);color:var(--accent2);}
+.date-input-wrap{flex:1;min-width:130px;}
+.date-picker{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);color:var(--text);font-size:13px;padding:6px 10px;outline:none;font-family:var(--sans);color-scheme:dark;}
+.date-picker:focus{border-color:var(--accent);}
+.date-label{font-size:13px;font-weight:600;color:var(--text);padding:2px 4px;}
+.date-today-mark{font-size:11px;color:var(--accent2);margin-left:4px;}
+
+/* DATE GROUP */
+.date-group{margin-bottom:20px;}
+.date-group-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;cursor:pointer;user-select:none;}
+.date-group-title{font-size:12px;font-weight:600;color:var(--text2);display:flex;align-items:center;gap:6px;}
+.date-group-title .date-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);}
+.date-group-title.past-title .date-dot{background:var(--text3);}
+.date-group-title.today-title .date-dot{background:var(--green);}
+.date-group-meta{font-size:11px;color:var(--text3);}
+.date-group-toggle{font-size:11px;color:var(--text3);}
+
 .todo-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);}
 .todo-row:last-child{border-bottom:none;}
 .todo-cb{width:17px;height:17px;cursor:pointer;accent-color:var(--green);flex-shrink:0;}
@@ -165,10 +187,8 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:1
     <div class="login-title">📚 시험 플래너</div>
     <div class="login-sub">PIN 번호를 입력하세요</div>
     <div class="login-dots" id="loginDots">
-      <div class="login-dot" id="d0"></div>
-      <div class="login-dot" id="d1"></div>
-      <div class="login-dot" id="d2"></div>
-      <div class="login-dot" id="d3"></div>
+      <div class="login-dot" id="d0"></div><div class="login-dot" id="d1"></div>
+      <div class="login-dot" id="d2"></div><div class="login-dot" id="d3"></div>
     </div>
     <div class="pin-grid">
       <button class="pin-btn" onclick="pinPress('1')">1</button>
@@ -218,10 +238,17 @@ const COLORS=['#7c6af7','#34c988','#f06060','#f5a623','#40b4e5','#e870b0','#5ec4
 let state={subjects:[]};
 let activeId='overview';
 let activeSubTab={};
+let selectedDate={};  // sid -> 'YYYY-MM-DD'
+let collapsedDates={};  // sid+date -> bool
 let timerIntervals={},timerStarts={};
-let saveTimer=null;
-let pinEntry='';
+let saveTimer=null,pinEntry='';
 
+function today(){return new Date().toISOString().slice(0,10);}
+function fmtDateKr(d){if(!d)return'';const[y,m,day]=d.split('-');return`${m}/${day}`;}
+function isToday(d){return d===today();}
+function isPast(d){return d<today();}
+
+/* PIN */
 function pinPress(d){if(pinEntry.length>=4)return;pinEntry+=d;updateDots();if(pinEntry.length===4)setTimeout(checkPin,120);}
 function pinClear(){pinEntry=pinEntry.slice(0,-1);updateDots();}
 function updateDots(){for(let i=0;i<4;i++)document.getElementById('d'+i).className='login-dot'+(i<pinEntry.length?' filled':'');}
@@ -230,6 +257,7 @@ function checkPin(){
   else{document.getElementById('loginErr').textContent='PIN이 틀렸어요';pinEntry='';updateDots();setTimeout(()=>document.getElementById('loginErr').textContent='',1500);}
 }
 
+/* SYNC */
 function showSync(type,msg){
   const bar=document.getElementById('syncBar'),mob=document.getElementById('mobSync'),ss=document.getElementById('syncStatus');
   bar.className=type;bar.textContent=msg;bar.style.display='block';
@@ -237,26 +265,21 @@ function showSync(type,msg){
   if(ss){ss.textContent=msg;ss.style.color=type==='saved'?'var(--green)':type==='error'?'var(--red)':'var(--blue)';}
   if(type==='saved')setTimeout(()=>{bar.style.display='none';if(mob)mob.textContent='';if(ss){ss.textContent='구글 시트 연동됨';ss.style.color='var(--text3)';}},2000);
 }
-
 async function loadFromSheet(){
   showSync('syncing','불러오는 중...');
   try{
     const res=await fetch(GAS_URL+'?action=load');
-    const text=await res.text();
-    const data=JSON.parse(text);
+    const data=JSON.parse(await res.text());
     if(data&&data.subjects)state=data;
     if(!Array.isArray(state.subjects))state.subjects=[];
     showSync('saved','불러오기 완료');render();
   }catch(e){
     showSync('error','불러오기 실패 — 로컬 사용');
     try{const d=localStorage.getItem('exam_planner_v3');if(d)state=JSON.parse(d);}catch(e2){}
-    if(!Array.isArray(state.subjects))state.subjects=[];
-    render();
+    if(!Array.isArray(state.subjects))state.subjects=[];render();
   }
 }
-
 function scheduleSave(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(saveToSheet,1500);}
-
 async function saveToSheet(){
   showSync('syncing','저장 중...');
   const body=JSON.stringify(state);
@@ -267,17 +290,33 @@ async function saveToSheet(){
   }catch(e){showSync('error','저장 실패 (로컬에만 저장됨)');}
 }
 
+/* HELPERS */
 function calcDDay(d){if(!d)return null;const n=new Date();n.setHours(0,0,0,0);const e=new Date(d);e.setHours(0,0,0,0);return Math.ceil((e-n)/86400000);}
 function ddayLabel(dd){if(dd===null)return'';if(dd>0)return`D-${dd}`;if(dd===0)return'D-Day';return`D+${Math.abs(dd)}`;}
 function ddayClass(dd){if(dd===null)return'';if(dd>0)return'upcoming';if(dd===0)return'today';return'past';}
 function fmtMin(m){m=Math.floor(m);return`${Math.floor(m/60)}h ${m%60}m`;}
 function fmtSec(s){s=Math.floor(s);return[Math.floor(s/3600),Math.floor((s%3600)/60),s%60].map(v=>String(v).padStart(2,'0')).join(':');}
 function getTotalMin(s){return(s.sessions||[]).reduce((a,x)=>a+x.dur,0);}
-function getProgress(s){const all=[...(s.todos.study||[]),...(s.todos.lecture||[]),...(s.todos.exam||[])];if(!all.length)return 0;return Math.round(all.filter(t=>t.done).length/all.length*100);}
+function getProgress(s){
+  let done=0,total=0;
+  const td=s.todos||{};
+  // study/lecture: date-keyed
+  ['study','lecture'].forEach(type=>{
+    Object.values(td[type]||{}).forEach(arr=>arr.forEach(t=>{total++;if(t.done)done++;}));
+  });
+  (td.exam||[]).forEach(t=>{total++;if(t.done)done++;});
+  return total?Math.round(done/total*100):0;
+}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function isPastExam(s){const dd=calcDDay(s.examDate);return dd!==null&&dd<0;}
-function newSubject(name){return{id:Date.now()+'_'+Math.random().toString(36).slice(2),name:name||'새 과목',color:COLORS[state.subjects.length%COLORS.length],examDate:null,todos:{study:[],lecture:[],exam:[]},sessions:[],memo:'',feedback:'',review:{good:'',bad:'',feedback:''}};}
+function newSubject(name){
+  return{id:Date.now()+'_'+Math.random().toString(36).slice(2),name:name||'새 과목',
+    color:COLORS[state.subjects.length%COLORS.length],examDate:null,
+    todos:{study:{},lecture:{},exam:[]},  // study/lecture: {date:[items]}, exam: flat array
+    sessions:[],memo:'',feedback:'',review:{good:'',bad:'',feedback:''}};
+}
 
+/* MOBILE */
 function toggleMobMenu(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('mobOverlay').classList.toggle('show');}
 function closeMobMenu(){document.getElementById('sidebar').classList.remove('open');document.getElementById('mobOverlay').classList.remove('show');}
 
@@ -304,7 +343,6 @@ function switchTo(id){
   else if(t){const s=state.subjects.find(x=>x.id===id);if(s)t.textContent=s.name;}
   render();
 }
-
 function addSubject(){
   const name=prompt('과목 이름:');if(!name||!name.trim())return;
   const s=newSubject(name.trim());state.subjects.push(s);activeId=s.id;scheduleSave();render();
@@ -316,13 +354,18 @@ function renderMain(){
   else{const s=state.subjects.find(x=>x.id===activeId);if(!s){activeId='overview';render();return;}el.innerHTML=buildSubject(s);bindSubject(s);}
 }
 
+/* OVERVIEW */
 function buildOverview(){
   let totalMin=0,totalDone=0,totalTodo=0;
-  state.subjects.forEach(s=>{totalMin+=getTotalMin(s);const all=[...(s.todos.study||[]),...(s.todos.lecture||[]),...(s.todos.exam||[])];totalDone+=all.filter(t=>t.done).length;totalTodo+=all.length;});
+  state.subjects.forEach(s=>{
+    totalMin+=getTotalMin(s);
+    ['study','lecture'].forEach(type=>{Object.values(s.todos[type]||{}).forEach(arr=>arr.forEach(t=>{totalTodo++;if(t.done)totalDone++;}));});
+    (s.todos.exam||[]).forEach(t=>{totalTodo++;if(t.done)totalDone++;});
+  });
   const pct=totalTodo?Math.round(totalDone/totalTodo*100):0;
   const sorted=[...state.subjects].sort((a,b)=>{const da=calcDDay(a.examDate),db=calcDDay(b.examDate);if(da===null&&db===null)return 0;if(da===null)return 1;if(db===null)return-1;return da-db;});
   let cards='';
-  if(!state.subjects.length){cards=`<div style="color:var(--text3);font-size:13px;padding:16px 0;">아직 과목이 없어요. 왼쪽에서 추가해보세요.</div>`;}
+  if(!state.subjects.length){cards=`<div style="color:var(--text3);font-size:13px;padding:16px 0;">아직 과목이 없어요.</div>`;}
   else sorted.forEach(s=>{
     const prog=getProgress(s),dd=calcDDay(s.examDate),ddStr=ddayLabel(dd);
     const ddColor=dd!==null&&dd<=0?'var(--red)':dd!==null&&dd<=3?'var(--amber)':dd!==null?'var(--accent2)':'var(--text3)';
@@ -356,9 +399,13 @@ function buildOverview(){
   </div>`;
 }
 
+/* SUBJECT */
 function buildSubject(s){
-  if(!s.todos||Array.isArray(s.todos)){s.todos={study:s.todos||[],lecture:[],exam:[]};}
-  if(!s.todos.study)s.todos.study=[];if(!s.todos.lecture)s.todos.lecture=[];if(!s.todos.exam)s.todos.exam=[];
+  // migrate old array format
+  if(!s.todos||Array.isArray(s.todos))s.todos={study:{},lecture:{},exam:s.todos||[]};
+  if(Array.isArray(s.todos.study)){const old=s.todos.study;s.todos.study={};if(old.length){const t=today();s.todos.study[t]=old;}}
+  if(Array.isArray(s.todos.lecture)){const old=s.todos.lecture;s.todos.lecture={};if(old.length){const t=today();s.todos.lecture[t]=old;}}
+  if(!s.todos.exam)s.todos.exam=[];
   if(!s.review)s.review={good:'',bad:'',feedback:''};
   const dd=calcDDay(s.examDate),ddStr=ddayLabel(dd),past=isPastExam(s);
   const subTab=activeSubTab[s.id]||'study';
@@ -368,7 +415,7 @@ function buildSubject(s){
   let reviewHtml='';
   if(past){reviewHtml=`<div class="review-card"><div class="review-title">✍️ 시험 후기 & 피드백</div>
     <div class="review-field"><label>잘했던 점</label><textarea class="fb-textarea" id="rev-good-${s.id}" onblur="saveReview('${s.id}')" placeholder="잘 됐던 부분...">${esc(s.review.good)}</textarea></div>
-    <div class="review-field"><label>아쉬웠던 점</label><textarea class="fb-textarea" id="rev-bad-${s.id}" onblur="saveReview('${s.id}')" placeholder="틀렸던 부분, 준비 부족했던 것...">${esc(s.review.bad)}</textarea></div>
+    <div class="review-field"><label>아쉬웠던 점</label><textarea class="fb-textarea" id="rev-bad-${s.id}" onblur="saveReview('${s.id}')" placeholder="틀렸던 부분...">${esc(s.review.bad)}</textarea></div>
     <button class="btn-feedback" onclick="getReviewFeedback('${s.id}')">AI 피드백 받기</button>
     <div class="feedback-out" id="rev-fb-${s.id}" style="${s.review.feedback?'display:block':'display:none'}">${esc(s.review.feedback)}</div></div>`;}
   return`<div class="panel">
@@ -416,6 +463,7 @@ function bindSubject(s){
   }
 }
 
+/* SUBTAB */
 function setSubTab(sid,tab){
   activeSubTab[sid]=tab;
   const s=state.subjects.find(x=>x.id===sid);if(!s)return;
@@ -425,49 +473,166 @@ function setSubTab(sid,tab){
   });
   renderSubTab(s);
 }
-
 function renderSubTab(s){
   const tab=activeSubTab[s.id]||'study';
   const el=document.getElementById(`subtab-content-${s.id}`);if(!el)return;
-  if(tab==='study'||tab==='lecture')el.innerHTML=buildTodoList(s,tab);
+  if(tab==='study'||tab==='lecture')el.innerHTML=buildDatedTodoList(s,tab);
   else if(tab==='exam')el.innerHTML=buildExamList(s);
   else el.innerHTML=buildWrongNotes(s);
 }
 
-function buildTodoList(s,type){
-  const items=s.todos[type]||[];
-  let rows=items.map((t,i)=>`<div class="todo-row"><input type="checkbox" class="todo-cb" ${t.done?'checked':''} onchange="toggleTodo('${s.id}','${type}',${i})"/><input class="todo-txt${t.done?' done':''}" value="${esc(t.text)}" onblur="editTodo('${s.id}','${type}',${i},this.value)"/><button class="todo-del" onclick="deleteTodo('${s.id}','${type}',${i})">×</button></div>`).join('');
-  if(!rows)rows=`<div class="empty-msg">항목이 없어요</div>`;
-  return`<div>${rows}</div><div class="add-row"><input id="todo-inp-${s.id}-${type}" placeholder="${type==='study'?'정리할 내용 추가...':'들을 강의 추가...'}" onkeydown="if(event.key==='Enter')addTodo('${s.id}','${type}')"/><button class="btn-add" onclick="addTodo('${s.id}','${type}')">추가</button></div>`;
+/* DATE-BASED TODO LIST */
+function buildDatedTodoList(s,type){
+  const dateMap=s.todos[type]||{};
+  const selDate=selectedDate[s.id+'_'+type]||today();
+
+  // date navigation
+  const dateNav=`<div class="date-nav">
+    <button class="date-nav-btn" onclick="changeDate('${s.id}','${type}',-1)">◀</button>
+    <div class="date-input-wrap">
+      <input type="date" class="date-picker" value="${selDate}" onchange="setSelectedDate('${s.id}','${type}',this.value)" style="color-scheme:dark"/>
+    </div>
+    <button class="date-nav-btn" onclick="changeDate('${s.id}','${type}',1)">▶</button>
+    <button class="date-nav-btn today-btn" onclick="setSelectedDate('${s.id}','${type}','${today()}')">오늘</button>
+  </div>`;
+
+  // current date items
+  const items=dateMap[selDate]||[];
+  const isTodayDate=isToday(selDate);
+  const isPastDate=isPast(selDate);
+
+  let rows=items.map((t,i)=>`<div class="todo-row">
+    <input type="checkbox" class="todo-cb" ${t.done?'checked':''} onchange="toggleDatedTodo('${s.id}','${type}','${selDate}',${i})"/>
+    <input class="todo-txt${t.done?' done':''}" value="${esc(t.text)}" onblur="editDatedTodo('${s.id}','${type}','${selDate}',${i},this.value)"/>
+    <button class="todo-del" onclick="deleteDatedTodo('${s.id}','${type}','${selDate}',${i})">×</button>
+  </div>`).join('');
+  if(!rows)rows=`<div class="empty-msg">${isTodayDate?'오늘 할 일을 추가하세요':isPastDate?'이 날 할 일이 없어요':'이 날 할 일을 미리 추가하세요'}</div>`;
+
+  const doneCount=items.filter(t=>t.done).length;
+  const pct=items.length?Math.round(doneCount/items.length*100):0;
+  const progHtml=items.length?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+    <div class="prog-bar" style="flex:1;height:4px;"><div class="prog-fill" style="width:${pct}%;background:var(--green)"></div></div>
+    <span style="font-size:11px;color:var(--text3);font-family:var(--mono)">${doneCount}/${items.length}</span>
+  </div>`:'';
+
+  // all dates with items (for history)
+  const allDates=Object.keys(dateMap).filter(d=>dateMap[d].length>0).sort().reverse();
+  let historyHtml='';
+  if(allDates.length>0){
+    historyHtml=`<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+      <div style="font-size:10px;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;">전체 날짜별 기록</div>`;
+    allDates.forEach(d=>{
+      if(d===selDate)return;
+      const arr=dateMap[d]||[];
+      const dc=arr.filter(t=>t.done).length;
+      const key=s.id+type+d;
+      const collapsed=collapsedDates[key]!==false;
+      const isT=isToday(d),isP=isPast(d);
+      const titleClass=isT?'today-title':isP?'past-title':'';
+      historyHtml+=`<div class="date-group">
+        <div class="date-group-header" onclick="toggleCollapse('${key}')">
+          <div class="date-group-title ${titleClass}">
+            <span class="date-dot"></span>
+            <span>${d}${isT?' (오늘)':''}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="date-group-meta">${dc}/${arr.length} 완료</span>
+            <span class="date-group-toggle">${collapsed?'▼':'▲'}</span>
+          </div>
+        </div>
+        ${!collapsed?`<div style="padding-left:4px;">${arr.map((t,i)=>`<div class="todo-row">
+          <input type="checkbox" class="todo-cb" ${t.done?'checked':''} onchange="toggleDatedTodo('${s.id}','${type}','${d}',${i})"/>
+          <input class="todo-txt${t.done?' done':''}" value="${esc(t.text)}" onblur="editDatedTodo('${s.id}','${type}','${d}',${i},this.value)"/>
+          <button class="todo-del" onclick="deleteDatedTodo('${s.id}','${type}','${d}',${i})">×</button>
+        </div>`).join('')}</div>`:''}
+      </div>`;
+    });
+    historyHtml+='</div>';
+  }
+
+  const ph=type==='study'?'정리할 내용 추가...':'들을 강의 추가...';
+  return`${dateNav}
+  ${progHtml}
+  <div id="dated-todos-${s.id}-${type}">${rows}</div>
+  <div class="add-row">
+    <input id="todo-inp-${s.id}-${type}" placeholder="${ph}" onkeydown="if(event.key==='Enter')addDatedTodo('${s.id}','${type}','${selDate}')"/>
+    <button class="btn-add" onclick="addDatedTodo('${s.id}','${type}','${selDate}')">추가</button>
+  </div>
+  ${historyHtml}`;
 }
 
+function setSelectedDate(sid,type,date){
+  selectedDate[sid+'_'+type]=date;
+  const s=state.subjects.find(x=>x.id===sid);if(s)renderSubTab(s);
+}
+function changeDate(sid,type,delta){
+  const cur=selectedDate[sid+'_'+type]||today();
+  const d=new Date(cur);d.setDate(d.getDate()+delta);
+  setSelectedDate(sid,type,d.toISOString().slice(0,10));
+}
+function toggleCollapse(key){
+  collapsedDates[key]=collapsedDates[key]===false?true:false;
+  // re-render current subtab
+  const sid=Object.keys(selectedDate).find(k=>key.startsWith(k.split('_')[0]));
+  if(sid){const s=state.subjects.find(x=>x.id===sid.split('_')[0]);if(s)renderSubTab(s);}
+  else{// fallback: find active subject
+    const s=state.subjects.find(x=>x.id===activeId);if(s)renderSubTab(s);}
+}
+
+/* DATED TODO ACTIONS */
+function addDatedTodo(sid,type,date){
+  const inp=document.getElementById(`todo-inp-${sid}-${type}`);if(!inp)return;
+  const text=inp.value.trim();if(!text)return;
+  const s=state.subjects.find(x=>x.id===sid);if(!s)return;
+  if(!s.todos[type])s.todos[type]={};
+  if(!s.todos[type][date])s.todos[type][date]=[];
+  s.todos[type][date].push({text,done:false});
+  inp.value='';scheduleSave();renderSubTab(s);renderNav();
+}
+function toggleDatedTodo(sid,type,date,i){
+  const s=state.subjects.find(x=>x.id===sid);if(!s)return;
+  s.todos[type][date][i].done=!s.todos[type][date][i].done;scheduleSave();renderSubTab(s);renderNav();
+}
+function editDatedTodo(sid,type,date,i,val){
+  const s=state.subjects.find(x=>x.id===sid);if(!s||!val.trim())return;
+  s.todos[type][date][i].text=val.trim();scheduleSave();
+}
+function deleteDatedTodo(sid,type,date,i){
+  const s=state.subjects.find(x=>x.id===sid);if(!s)return;
+  s.todos[type][date].splice(i,1);
+  if(!s.todos[type][date].length)delete s.todos[type][date];
+  scheduleSave();renderSubTab(s);renderNav();
+}
+
+/* EXAM LIST */
 function buildExamList(s){
   const items=s.todos.exam||[];
   let rows=items.map((t,i)=>{
     const score=t.score!==null&&t.score!==undefined?t.score:null,max=t.maxScore||100,pct=score!==null?Math.round(score/max*100):null;
     const badge=pct!==null?(pct===100?`<span class="score-badge perfect">만점</span>`:pct>=80?`<span class="score-badge mid">${pct}%</span>`:`<span class="score-badge low">${pct}%</span>`):'';
     const noteBtn=score!==null&&pct!==100?`<button class="exam-note-btn" onclick="goToWrongNote('${s.id}')">오답노트</button>`:'';
-    return`<div class="exam-row"><input type="checkbox" class="todo-cb" ${t.done?'checked':''} onchange="toggleTodo('${s.id}','exam',${i})"/><span class="exam-name${t.done?' done':''}">${esc(t.text)}</span>${badge}<div style="display:flex;align-items:center;gap:4px;"><input class="exam-score-inp" type="number" min="0" max="${max}" placeholder="점수" value="${score!==null?score:''}" onchange="setExamScore('${s.id}',${i},this.value)" onfocus="this.select()"/><span class="exam-score-lbl">/ ${max}</span></div>${noteBtn}<button class="todo-del" onclick="deleteTodo('${s.id}','exam',${i})">×</button></div>`;
+    return`<div class="exam-row"><input type="checkbox" class="todo-cb" ${t.done?'checked':''} onchange="toggleExam('${s.id}',${i})"/><span class="exam-name${t.done?' done':''}">${esc(t.text)}</span>${badge}<div style="display:flex;align-items:center;gap:4px;"><input class="exam-score-inp" type="number" min="0" max="${max}" placeholder="점수" value="${score!==null?score:''}" onchange="setExamScore('${s.id}',${i},this.value)" onfocus="this.select()"/><span class="exam-score-lbl">/ ${max}</span></div>${noteBtn}<button class="todo-del" onclick="deleteExam('${s.id}',${i})">×</button></div>`;
   }).join('');
   if(!rows)rows=`<div class="empty-msg">시험 항목이 없어요</div>`;
-  return`<div>${rows}</div><div class="add-row"><input id="todo-inp-${s.id}-exam" placeholder="시험/퀴즈 이름 추가..." onkeydown="if(event.key==='Enter')addTodo('${s.id}','exam')"/><button class="btn-add" onclick="addTodo('${s.id}','exam')">추가</button></div>`;
+  return`<div>${rows}</div><div class="add-row"><input id="todo-inp-${s.id}-exam" placeholder="시험/퀴즈 이름 추가..." onkeydown="if(event.key==='Enter')addExam('${s.id}')"/><button class="btn-add" onclick="addExam('${s.id}')">추가</button></div>`;
 }
+function addExam(sid){const inp=document.getElementById(`todo-inp-${sid}-exam`);if(!inp)return;const text=inp.value.trim();if(!text)return;const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.todos.exam.push({text,done:false,score:null,maxScore:100,wrongNote:''});inp.value='';scheduleSave();renderSubTab(s);renderNav();}
+function toggleExam(sid,i){const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.todos.exam[i].done=!s.todos.exam[i].done;scheduleSave();renderSubTab(s);renderNav();}
+function deleteExam(sid,i){const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.todos.exam.splice(i,1);scheduleSave();renderSubTab(s);renderNav();}
+function setExamScore(sid,i,val){const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.todos.exam[i].score=val===''?null:Number(val);scheduleSave();setTimeout(()=>{if((activeSubTab[sid]||'study')==='exam')renderSubTab(s);},200);}
+function goToWrongNote(sid){activeSubTab[sid]='wrongnote';const s=state.subjects.find(x=>x.id===sid);if(s)renderSubTab(s);document.querySelectorAll('.tab-btn').forEach(b=>b.className='tab-btn'+(b.textContent.includes('오답')?' active':''));}
 
+/* WRONG NOTES */
 function buildWrongNotes(s){
   const exams=(s.todos.exam||[]).filter(t=>t.score!==null&&Math.round(t.score/(t.maxScore||100)*100)<100);
   if(!exams.length)return`<div class="empty-msg">시험 탭에서 점수를 입력하면 오답노트가 생성돼요</div>`;
   return exams.map(t=>{const realIdx=(s.todos.exam||[]).findIndex(x=>x===t),pct=Math.round(t.score/(t.maxScore||100)*100);
-    return`<div class="wnote-item"><div class="wnote-name">${esc(t.text)}</div><div class="wnote-score">${t.score}/${t.maxScore||100}점 (${pct}%)</div><textarea class="wnote-area" placeholder="틀린 이유, 헷갈린 개념, 다음에 주의할 점..." onblur="saveWrongNote('${s.id}',${realIdx},this.value)">${esc(t.wrongNote||'')}</textarea></div>`;
+    return`<div class="wnote-item"><div class="wnote-name">${esc(t.text)}</div><div class="wnote-score">${t.score}/${t.maxScore||100}점 (${pct}%)</div><textarea class="wnote-area" placeholder="틀린 이유, 헷갈린 개념..." onblur="saveWrongNote('${s.id}',${realIdx},this.value)">${esc(t.wrongNote||'')}</textarea></div>`;
   }).join('');
 }
-
-function addTodo(sid,type){const inp=document.getElementById(`todo-inp-${sid}-${type}`);if(!inp)return;const text=inp.value.trim();if(!text)return;const s=state.subjects.find(x=>x.id===sid);if(!s)return;if(!s.todos[type])s.todos[type]=[];s.todos[type].push(type==='exam'?{text,done:false,score:null,maxScore:100,wrongNote:''}:{text,done:false});inp.value='';scheduleSave();renderSubTab(s);renderNav();}
-function toggleTodo(sid,type,i){const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.todos[type][i].done=!s.todos[type][i].done;scheduleSave();renderSubTab(s);renderNav();}
-function editTodo(sid,type,i,val){const s=state.subjects.find(x=>x.id===sid);if(!s||!val.trim())return;s.todos[type][i].text=val.trim();scheduleSave();}
-function deleteTodo(sid,type,i){const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.todos[type].splice(i,1);scheduleSave();renderSubTab(s);renderNav();}
-function setExamScore(sid,i,val){const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.todos.exam[i].score=val===''?null:Number(val);scheduleSave();setTimeout(()=>{if((activeSubTab[sid]||'study')==='exam')renderSubTab(s);},200);}
-function goToWrongNote(sid){activeSubTab[sid]='wrongnote';const s=state.subjects.find(x=>x.id===sid);if(s)renderSubTab(s);document.querySelectorAll('.tab-btn').forEach(b=>b.className='tab-btn'+(b.textContent.includes('오답')?' active':''));}
 function saveWrongNote(sid,i,val){const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.todos.exam[i].wrongNote=val;scheduleSave();}
+
+/* OTHER ACTIONS */
 function setSubjectExamDate(sid,val){const s=state.subjects.find(x=>x.id===sid);if(!s)return;s.examDate=val||null;scheduleSave();render();}
 function renameSubject(sid,name){if(!name.trim())return;const s=state.subjects.find(x=>x.id===sid);if(s){s.name=name.trim();scheduleSave();renderNav();}}
 function deleteSubject(sid){if(!confirm('이 과목을 삭제할까요?'))return;state.subjects=state.subjects.filter(x=>x.id!==sid);activeId='overview';if(timerIntervals[sid]){clearInterval(timerIntervals[sid]);delete timerIntervals[sid];}delete timerStarts[sid];scheduleSave();render();}
@@ -475,7 +640,7 @@ function toggleTimer(sid){
   const btn=document.getElementById(`tbtn-${sid}`);
   if(timerStarts[sid]){
     const elapsed=Math.floor((Date.now()-timerStarts[sid])/1000);clearInterval(timerIntervals[sid]);delete timerIntervals[sid];
-    const s=state.subjects.find(x=>x.id===sid);if(s)s.sessions.push({date:new Date().toISOString().slice(0,10),dur:Math.round(elapsed/60*10)/10,label:new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})});
+    const s=state.subjects.find(x=>x.id===sid);if(s)s.sessions.push({date:today(),dur:Math.round(elapsed/60*10)/10,label:new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})});
     delete timerStarts[sid];scheduleSave();renderMain();
   }else{
     timerStarts[sid]=Date.now();if(btn){btn.textContent='중지';btn.className='timer-btn stop';}
@@ -486,14 +651,17 @@ function resetTimer(sid){if(timerIntervals[sid]){clearInterval(timerIntervals[si
 function saveMemo(sid){const s=state.subjects.find(x=>x.id===sid);if(!s)return;const el=document.getElementById(`memo-${sid}`);if(el){s.memo=el.value;scheduleSave();}}
 function saveReview(sid){const s=state.subjects.find(x=>x.id===sid);if(!s)return;const g=document.getElementById(`rev-good-${sid}`),b=document.getElementById(`rev-bad-${sid}`);if(g)s.review.good=g.value;if(b)s.review.bad=b.value;scheduleSave();}
 
+/* AI */
 async function getFeedback(sid){
   const s=state.subjects.find(x=>x.id===sid);if(!s)return;
   const box=document.getElementById(`fb-${sid}`);if(!box)return;
   box.style.display='block';box.textContent='AI 분석 중...';
-  const all=[...(s.todos.study||[]),...(s.todos.lecture||[]),...(s.todos.exam||[])];
+  let allDone=[],allPending=[];
+  ['study','lecture'].forEach(type=>{Object.values(s.todos[type]||{}).forEach(arr=>arr.forEach(t=>{(t.done?allDone:allPending).push(t.text);}));});
+  (s.todos.exam||[]).forEach(t=>{(t.done?allDone:allPending).push(t.text);});
   const prompt=`너는 친절하고 솔직한 학습 코치야. 한국어로 3~4문장, 핵심만.
 과목: ${s.name} | 시험까지: ${calcDDay(s.examDate)!==null?calcDDay(s.examDate)+'일':'미설정'} | 공부시간: ${Math.round(getTotalMin(s))}분
-완료: ${all.filter(t=>t.done).map(t=>t.text).join(', ')||'없음'} | 남은것: ${all.filter(t=>!t.done).map(t=>t.text).join(', ')||'없음'}
+완료: ${allDone.slice(0,5).join(', ')||'없음'} | 남은것: ${allPending.slice(0,5).join(', ')||'없음'}
 점수: ${(s.todos.exam||[]).filter(t=>t.score!==null).map(t=>`${t.text}:${t.score}/${t.maxScore||100}`).join(', ')||'없음'} | 메모: ${s.memo||'없음'}
 잘 하고 있는 점, 더 신경 써야 할 점, 오늘 당장 할 수 있는 조언.`;
   try{
@@ -508,7 +676,7 @@ async function getReviewFeedback(sid){
   const box=document.getElementById(`rev-fb-${sid}`);if(!box)return;
   box.style.display='block';box.textContent='AI 분석 중...';
   const prompt=`너는 친절한 학습 코치야. 한국어로 3~4문장, 핵심만.
-과목: ${s.name} 시험 후기 — 잘했던 점: ${s.review.good||'없음'} | 아쉬웠던 점: ${s.review.bad||'없음'}
+과목: ${s.name} | 잘했던 점: ${s.review.good||'없음'} | 아쉬웠던 점: ${s.review.bad||'없음'}
 이 경험을 바탕으로 다음 시험을 위해 구체적으로 어떻게 준비하면 좋을지 조언해줘.`;
   try{
     const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:prompt}]})});
@@ -520,7 +688,12 @@ async function getReviewFeedback(sid){
 async function getOverallFeedback(){
   const box=document.getElementById('overall-fb');if(!box)return;
   box.style.display='block';box.textContent='전체 분석 중...';
-  const summary=state.subjects.map(s=>{const all=[...(s.todos.study||[]),...(s.todos.lecture||[]),...(s.todos.exam||[])];return`- ${s.name}: ${all.filter(t=>t.done).length}/${all.length}개 완료, ${Math.round(getTotalMin(s))}분, 시험${calcDDay(s.examDate)!==null?calcDDay(s.examDate)+'일 후':'미설정'}`;}).join('\n');
+  const summary=state.subjects.map(s=>{
+    let done=0,total=0;
+    ['study','lecture'].forEach(type=>{Object.values(s.todos[type]||{}).forEach(arr=>arr.forEach(t=>{total++;if(t.done)done++;}));});
+    (s.todos.exam||[]).forEach(t=>{total++;if(t.done)done++;});
+    return`- ${s.name}: ${done}/${total}개 완료, ${Math.round(getTotalMin(s))}분, 시험${calcDDay(s.examDate)!==null?calcDDay(s.examDate)+'일 후':'미설정'}`;
+  }).join('\n');
   const prompt=`너는 친절하고 솔직한 학습 코치야. 한국어로 4~5문장, 핵심만.\n전체 과목:\n${summary}\n과목 간 균형, 가장 집중이 필요한 과목, 오늘 해야 할 일에 대한 전략적 조언.`;
   try{
     const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
